@@ -1,4 +1,4 @@
-export const errorAndExit = (condition: string | number | null | undefined, message: string) => {
+export const errorAndExit = (condition: string | number | null | undefined | boolean, message: string) => {
   if (!condition) {
     console.error(message);
     process.exit(1);

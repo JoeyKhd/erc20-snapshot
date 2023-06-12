@@ -7,13 +7,14 @@ import {
   decodeEventLog,
   DecodeEventLogReturnType,
   BlockTag,
-  Block,
+  webSocket,
 } from "viem";
 import { mainnet } from "viem/chains";
 import _ from "lodash";
 import * as Utils from "./utils";
 import { erc20Abi } from "./abi/erc20";
 import moment from "moment";
+import { writeFile } from "fs/promises";
 
 dotenv.config();
 
@@ -23,7 +24,11 @@ Utils.errorAndExit(process.env.SNAPSHOT_BLOCK, "SNAPSHOT_BLOCK missing from .env
 Utils.errorAndExit(process.env.BLOCKS_PER_BATCH, "BLOCKS_PER_BATCH missing from .env");
 Utils.errorAndExit(process.env.SLEEP_TIMEOUT, "SLEEP_TIMEOUT missing from .env");
 
-const transport = http(process.env.RPC_URL);
+const transport = String(process.env.RPC_URL).includes("https://")
+  ? http(process.env.RPC_URL)
+  : String(process.env.RPC_URL).includes("wss://")
+  ? webSocket(process.env.RPC_URL)
+  : http();
 
 const client = createPublicClient({
   batch: {
@@ -36,15 +41,20 @@ const client = createPublicClient({
   transport,
 });
 
-const CONTRACTADDRESS: Address = process.env.CONTRACTADDRESS;
-const DEPLOYMENT_BLOCK: number = process.env.DEPLOYMENT_BLOCK;
-let SNAPSHOT_BLOCK: number | string | BlockTag = process.env.SNAPSHOT_BLOCK;
-const BLOCKS_PER_BATCH: number = process.env.BLOCKS_PER_BATCH;
-const SLEEP_TIMEOUT: number = process.env.SLEEP_TIMEOUT;
+const CONTRACTADDRESS: Address = process.env.CONTRACTADDRESS as Address;
+const DEPLOYMENT_BLOCK: number = Number(process.env.DEPLOYMENT_BLOCK);
+let SNAPSHOT_BLOCK: number | string | BlockTag = !Number.isNaN(parseInt(String(process.env.SNAPSHOT_BLOCK)))
+  ? Number(process.env.SNAPSHOT_BLOCK)
+  : String(process.env.SNAPSHOT_BLOCK);
+
+const BLOCKS_PER_BATCH: number = Number(process.env.BLOCKS_PER_BATCH);
+const SLEEP_TIMEOUT: number = Number(process.env.SLEEP_TIMEOUT);
 
 const ALLOWED_BLOCKTAGS: string[] = ["latest", "earliest", "pending", "safe", "finalized"];
 
 const processSnapshotBlock = async () => {
+  console.log(`Processing snapshot block`, SNAPSHOT_BLOCK);
+
   if (typeof SNAPSHOT_BLOCK == "string") {
     if (!ALLOWED_BLOCKTAGS.includes(SNAPSHOT_BLOCK)) {
       Utils.errorAndExit(
@@ -64,7 +74,7 @@ const processSnapshotBlock = async () => {
 };
 
 const addresses = new Set<Address>();
-const balances: number[] = [];
+let balances: number[] = [];
 const contract = {
   address: CONTRACTADDRESS,
   abi: erc20Abi,
@@ -116,7 +126,6 @@ const getAddresses = async () => {
 
 const getBalances = async () => {
   console.log(`A total of ${addresses.size} addresses detected to snapshot on.`);
-  
   const calls: any[] = [];
   for (const address of addresses.values()) {
     calls.push({
@@ -126,22 +135,62 @@ const getBalances = async () => {
     });
   }
 
+  console.log(`Executing multicall calls, please wait..`);
+
   const results = await client.multicall({
     contracts: calls,
     allowFailure: false,
     blockNumber: BigInt(SNAPSHOT_BLOCK),
   });
 
-  console.log(results);
+  balances = results as number[];
 };
 
-const writeOutput = () => {};
+const writeOutput = async () => {
+  const addressesArray = [...addresses];
+  const data: any = [];
+  for (let p = 0; p < addressesArray.length; p++) {
+    const address = addressesArray[p];
+    const balance = String(balances[p]);
+    console.log({ address, balance });
+    data.push({ address, balance });
+  }
+
+  const JSON_OUTPUT: string = `./output/report-snapshot-${SNAPSHOT_BLOCK}.json`;
+  await writeFile(JSON_OUTPUT, JSON.stringify(data, null, 4)).then(() => {
+    console.log(`Saved report as json to ${JSON_OUTPUT}`);
+  });
+
+  let csv: string = `Address,Balance,Snapshot Block\n`;
+
+  for (const record of data) {
+    const { address, balance } = record;
+    csv += `${address},${balance},${SNAPSHOT_BLOCK}\n`;
+  }
+  const CSV_OUTPUT: string = `./output/report-snapshot-${SNAPSHOT_BLOCK}.csv`;
+
+  await writeFile(CSV_OUTPUT, csv).then(() => {
+    console.log(`Saved report as csv to ${CSV_OUTPUT}`);
+  });
+
+  const STATS_OUTPUT: string = `./output/report-details-${SNAPSHOT_BLOCK}.json`;
+  await writeFile(
+    STATS_OUTPUT,
+    JSON.stringify({ SNAPSHOT_BLOCK, CONTRACTADDRESS, DEPLOYMENT_BLOCK, SLEEP_TIMEOUT, BLOCKS_PER_BATCH }, null, 4)
+  ).then(() => {
+    console.log(`Saved report statistics as json to ${STATS_OUTPUT}`);
+  });
+
+  console.log(`All finished! ✅`);
+  process.exit(1);
+};
 
 const run = async () => {
   try {
     await processSnapshotBlock();
     await getAddresses();
     await getBalances();
+    await writeOutput();
   } catch (err: any) {
     console.error("Stack: ", err);
     console.error("Message: ", err.message);
