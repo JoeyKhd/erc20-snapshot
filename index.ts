@@ -6,36 +6,65 @@ import {
   parseAbiItem,
   decodeEventLog,
   DecodeEventLogReturnType,
-  MulticallContracts,
+  BlockTag,
+  Block,
 } from "viem";
 import { mainnet } from "viem/chains";
 import _ from "lodash";
 import * as Utils from "./utils";
 import { erc20Abi } from "./abi/erc20";
+import moment from "moment";
+
 dotenv.config();
 
 Utils.errorAndExit(process.env.RPC_URL, "RPC_URL missing from .env");
+Utils.errorAndExit(process.env.DEPLOYMENT_BLOCK, "DEPLOYMENT_BLOCK missing from .env");
+Utils.errorAndExit(process.env.SNAPSHOT_BLOCK, "SNAPSHOT_BLOCK missing from .env");
+Utils.errorAndExit(process.env.BLOCKS_PER_BATCH, "BLOCKS_PER_BATCH missing from .env");
+Utils.errorAndExit(process.env.SLEEP_TIMEOUT, "SLEEP_TIMEOUT missing from .env");
 
 const transport = http(process.env.RPC_URL);
 
 const client = createPublicClient({
   batch: {
     multicall: {
-      wait: 500,
+      wait: 1500,
+      batchSize: 500,
     },
   },
   chain: mainnet,
   transport,
 });
 
-const CONTRACTADDRESS: Address = "0x85F17Cf997934a597031b2E18a9aB6ebD4B9f6a4";
-const DEPLOYMENT_BLOCK: number = 12475891;
-const SNAPSHOT_BLOCK: number = 17463809;
-const BLOCKS_PER_BATCH: number = 20000;
-const SLEEP_TIMEOUT: number = 500;
+const CONTRACTADDRESS: Address = process.env.CONTRACTADDRESS;
+const DEPLOYMENT_BLOCK: number = process.env.DEPLOYMENT_BLOCK;
+let SNAPSHOT_BLOCK: number | string | BlockTag = process.env.SNAPSHOT_BLOCK;
+const BLOCKS_PER_BATCH: number = process.env.BLOCKS_PER_BATCH;
+const SLEEP_TIMEOUT: number = process.env.SLEEP_TIMEOUT;
+
+const ALLOWED_BLOCKTAGS: string[] = ["latest", "earliest", "pending", "safe", "finalized"];
+
+const processSnapshotBlock = async () => {
+  if (typeof SNAPSHOT_BLOCK == "string") {
+    if (!ALLOWED_BLOCKTAGS.includes(SNAPSHOT_BLOCK)) {
+      Utils.errorAndExit(
+        null,
+        "Detected SNAPSHOT_BLOCK is a string, but is not an allowed BlockTag. Try one of those: latest, earliest, pending, safe, finalized"
+      );
+    }
+    const blockTag: BlockTag = SNAPSHOT_BLOCK as BlockTag;
+    const block = await client.getBlock({ blockTag });
+
+    console.log(`Detected blockTag: ${blockTag}, therefore setting block number to snapshot on to ${block.number}`);
+
+    if (block.number) {
+      SNAPSHOT_BLOCK = Number(block.number);
+    }
+  }
+};
 
 const addresses = new Set<Address>();
-
+const balances: number[] = [];
 const contract = {
   address: CONTRACTADDRESS,
   abi: erc20Abi,
@@ -43,7 +72,7 @@ const contract = {
 
 const getAddresses = async () => {
   const blocks: number[] = [];
-  for (let x = DEPLOYMENT_BLOCK; x <= SNAPSHOT_BLOCK; x++) {
+  for (let x = DEPLOYMENT_BLOCK; x <= Number(SNAPSHOT_BLOCK); x++) {
     blocks.push(x);
   }
 
@@ -57,9 +86,9 @@ const getAddresses = async () => {
     const toBlock: bigint = BigInt(batch[batch.length - 1]);
 
     console.log(
-      `Getting transfer events from ${fromBlock} to ${toBlock} (eta. ${
-        (totalBatches - currentBatch) * SLEEP_TIMEOUT
-      }ms)`
+      `⚙️ Getting transfer events from ${fromBlock} to ${toBlock} (⏱️ remaining: ${moment()
+        .add((totalBatches - currentBatch) * SLEEP_TIMEOUT, "millisecond")
+        .fromNow(true)})`
     );
 
     const filter = await client.createEventFilter({
@@ -86,23 +115,8 @@ const getAddresses = async () => {
 };
 
 const getBalances = async () => {
-  const addresses = new Set([
-    "0x593e580D169b8D53Ed6FC2A361F6b46c86De278D",
-    "0x4c7A5Dc4277bCf8f5A1cb6A951FA5862C64171F1",
-    "0xd1029Ff2fdEC01ebDcC65aE28C1756A3C1C85d32",
-    "0x8aA0B8bf4fD6426F7d2595A65b5a5c9C960497A2",
-    "0x9978FbDC278921F7338d29CB2742ddcF36931fbe",
-    "0x9b667FA9EF908407Dc90ad0274039fA2fd0007b3",
-    "0xee45C399979cB06fa2E883d2E50F911FBc3f17BF",
-    "0x790C2E02bE67615F592C5bCA1Ff4a64DB370d100",
-    "0x000000005804B22091aa9830E50459A15E7C9241",
-    "0x6C4295CFAc4030835f0Fcc621934f19107dd08e7",
-    "0xa752EeA12f7ecAA7674363255e5e7F0B083a515C",
-    "0x97de9677bD2EFF871C53BAEdEc29e029aFf2D5c4",
-    "0x5CAfbD5aE3EBEEfEAE0a1ef6ef21177df4e961a4",
-    "0x258F3Ee2D43293dFD07AE5fA811757a73255e77c",
-  ]);
-
+  console.log(`A total of ${addresses.size} addresses detected to snapshot on.`);
+  
   const calls: any[] = [];
   for (const address of addresses.values()) {
     calls.push({
@@ -125,12 +139,14 @@ const writeOutput = () => {};
 
 const run = async () => {
   try {
+    await processSnapshotBlock();
     await getAddresses();
     await getBalances();
   } catch (err: any) {
-    console.error(err);
+    console.error("Stack: ", err);
+    console.error("Message: ", err.message);
     console.error(
-      `Snapshot has been halted because it is unable to ensure a accurate outcome. View the error above and tweak accordingly.`
+      `✋🛑 Snapshot has been halted because it is unable to ensure a accurate outcome. View the error above and tweak accordingly.`
     );
   }
 };
