@@ -119,7 +119,7 @@ const getAddresses = async () => {
       addresses.add(args.from);
       addresses.add(args.to);
     }
-    await Utils.sleep(500);
+    await Utils.sleep(SLEEP_TIMEOUT);
     currentBatch++;
   }
 };
