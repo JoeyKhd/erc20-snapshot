@@ -14,7 +14,7 @@ import _ from "lodash";
 import * as Utils from "./utils";
 import { erc20Abi } from "./abi/erc20";
 import moment from "moment";
-import { writeFile } from "fs/promises";
+import { mkdir, writeFile } from "fs/promises";
 
 dotenv.config();
 
@@ -147,6 +147,7 @@ const getBalances = async () => {
 };
 
 const writeOutput = async () => {
+  await mkdir("./output", { recursive: true });
   const addressesArray = [...addresses];
   const data: any = [];
   for (let p = 0; p < addressesArray.length; p++) {
