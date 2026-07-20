@@ -74,7 +74,7 @@ const processSnapshotBlock = async () => {
 };
 
 const addresses = new Set<Address>();
-let balances: number[] = [];
+let balances: bigint[] = [];
 const contract = {
   address: CONTRACTADDRESS,
   abi: erc20Abi,
@@ -143,7 +143,7 @@ const getBalances = async () => {
     blockNumber: BigInt(SNAPSHOT_BLOCK),
   });
 
-  balances = results as number[];
+  balances = results as bigint[];
 };
 
 const writeOutput = async () => {
