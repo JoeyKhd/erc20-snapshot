@@ -1,7 +1,7 @@
 {
   "name": "erc20-snapshot",
   "version": "1.0.0",
-  "description": "",
+  "description": "Take a snapshot of all holders of an ERC20 token and their balances at a given block",
   "scripts": {
     "start": "tsx index.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
