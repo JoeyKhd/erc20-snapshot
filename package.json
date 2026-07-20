@@ -10,8 +10,11 @@
     "type": "git",
     "url": "git+https://github.com/JoeyKhd/erc20-snapshot.git"
   },
-  "author": "",
+  "author": "JoeyKhd",
   "license": "ISC",
+  "engines": {
+    "node": ">=18"
+  },
   "bugs": {
     "url": "https://github.com/JoeyKhd/erc20-snapshot/issues"
   },
