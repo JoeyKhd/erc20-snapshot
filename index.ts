@@ -183,7 +183,7 @@ const writeOutput = async () => {
   });
 
   console.log(`All finished! ✅`);
-  process.exit(1);
+  process.exit(0);
 };
 
 const run = async () => {
